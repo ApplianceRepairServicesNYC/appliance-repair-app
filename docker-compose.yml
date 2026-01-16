@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: appliance_repair_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-appliance_repair}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: appliance_repair_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-1d}
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-7d}
+      RINGCENTRAL_CLIENT_ID: ${RINGCENTRAL_CLIENT_ID}
+      RINGCENTRAL_CLIENT_SECRET: ${RINGCENTRAL_CLIENT_SECRET}
+      RINGCENTRAL_SERVER_URL: ${RINGCENTRAL_SERVER_URL}
+      RINGCENTRAL_WEBHOOK_VERIFICATION_TOKEN: ${RINGCENTRAL_WEBHOOK_VERIFICATION_TOKEN}
+      DEFAULT_WEEKLY_QUOTA: ${DEFAULT_WEEKLY_QUOTA:-25}
+      QUOTA_RESET_DAY: ${QUOTA_RESET_DAY:-1}
+      QUOTA_RESET_HOUR: ${QUOTA_RESET_HOUR:-0}
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@company.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      ADMIN_NAME: ${ADMIN_NAME:-System Admin}
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: appliance_repair_frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: /api
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - app_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: appliance_repair_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - app_network
+
+volumes:
+  postgres_data:
+
+networks:
+  app_network:
+    driver: bridge
